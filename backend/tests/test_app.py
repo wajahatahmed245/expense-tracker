@@ -210,6 +210,115 @@ class TestDashboard:
         assert r.get_json()["status"] == "ok"
 
 
+# ── Budget ───────────────────────────────────────────────────────────────────
+
+class TestBudget:
+    def test_get_budget_unauthenticated(self, client):
+        assert client.get("/api/budget").status_code == 401
+
+    def test_get_budget_no_config(self, client):
+        login(client)
+        r = client.get("/api/budget")
+        assert r.status_code == 200
+        data = r.get_json()
+        assert data["budget_configured"] is False
+        assert data["budget_paise"] == 0
+
+    def test_set_budget(self, client):
+        login(client)
+        r = client.put("/api/budget", json={"weekly_budget": "5000"})
+        assert r.status_code == 200
+        data = r.get_json()
+        assert data["budget_configured"] is True
+        assert data["budget_pkr"] == "5000.00"
+        assert data["budget_paise"] == 500000
+
+    def test_budget_tracks_expenses(self, client):
+        login(client)
+        client.put("/api/budget", json={"weekly_budget": "5000"})
+        # Add expense in current week
+        import datetime
+        today = datetime.date.today().strftime("%Y-%m-%d")
+        client.post("/api/expenses", json={
+            "amount": "1500",
+            "spent_on": "Lunch",
+            "expense_datetime": f"{today}T12:00:00",
+        })
+        r = client.get("/api/budget")
+        data = r.get_json()
+        assert data["spent_paise"] == 150000
+        assert data["percent_used"] == 30.0
+
+    def test_budget_history_unauthenticated(self, client):
+        r = client.get("/api/budget/history")
+        assert r.status_code == 401
+
+    def test_budget_history_authenticated(self, client):
+        login(client)
+        r = client.get("/api/budget/history")
+        assert r.status_code == 200
+        assert isinstance(r.get_json(), list)
+
+
+# ── Calendar ──────────────────────────────────────────────────────────────────
+
+class TestCalendar:
+    def test_calendar_unauthenticated(self, client):
+        assert client.get("/api/calendar/2026/9").status_code == 401
+
+    def test_calendar_empty_month(self, client):
+        login(client)
+        r = client.get("/api/calendar/2025/1")
+        assert r.status_code == 200
+        assert r.get_json() == []
+
+    def test_calendar_with_expenses(self, client):
+        login(client)
+        client.post("/api/expenses", json={
+            "amount": "850", "spent_on": "Lunch",
+            "expense_datetime": "2026-09-20T12:00:00",
+        })
+        client.post("/api/expenses", json={
+            "amount": "1500", "spent_on": "Petrol",
+            "expense_datetime": "2026-09-20T18:00:00",
+        })
+        client.post("/api/expenses", json={
+            "amount": "200", "spent_on": "Tea",
+            "expense_datetime": "2026-09-21T08:00:00",
+        })
+        r = client.get("/api/calendar/2026/9")
+        assert r.status_code == 200
+        days = r.get_json()
+        assert len(days) == 2
+        sep20 = next(d for d in days if d["date"] == "2026-09-20")
+        assert sep20["total_paise"] == 235000  # 850+1500=2350 PKR
+        assert sep20["count"] == 2
+
+
+# ── Poll ──────────────────────────────────────────────────────────────────────
+
+class TestPoll:
+    def test_poll_unauthenticated(self, client):
+        assert client.get("/api/poll").status_code == 401
+
+    def test_poll_returns_fingerprint(self, client):
+        login(client)
+        r = client.get("/api/poll")
+        assert r.status_code == 200
+        data = r.get_json()
+        assert "fingerprint" in data
+
+    def test_poll_changes_after_expense(self, client):
+        login(client)
+        fp1 = client.get("/api/poll").get_json()["fingerprint"]
+        client.post("/api/expenses", json={
+            "amount": "100", "spent_on": "Test",
+            "expense_datetime": "2026-09-20T10:00:00",
+        })
+        fp2 = client.get("/api/poll").get_json()["fingerprint"]
+        assert fp1 != fp2
+
+
 # ── Money representation ──────────────────────────────────────────────────────
 
 class TestMoney:

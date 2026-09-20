@@ -1,4 +1,4 @@
-import { useState, useEffect, createContext, useContext, useCallback } from "react";
+import { useState, useEffect, createContext, useContext, useCallback, useRef } from "react";
 import { api } from "./api.js";
 import Login from "./components/Login.jsx";
 import Dashboard from "./components/Dashboard.jsx";
@@ -17,12 +17,16 @@ function Toast({ message }) {
   return <div className="toast">{message}</div>;
 }
 
+const POLL_INTERVAL = 15000; // 15 seconds
+
 export default function App() {
-  const [user, setUser] = useState(null);
-  const [loading, setLoading] = useState(true);
-  const [view, setView] = useState("dashboard");
-  const [toast, setToast] = useState("");
+  const [user, setUser]         = useState(null);
+  const [loading, setLoading]   = useState(true);
+  const [view, setView]         = useState("dashboard");
+  const [toast, setToast]       = useState("");
   const [editExpense, setEditExpense] = useState(null);
+  const [refreshTick, setRefreshTick] = useState(0);
+  const lastFpRef = useRef(null);
 
   const showToast = useCallback((msg) => {
     setToast(msg);
@@ -36,19 +40,51 @@ export default function App() {
       .finally(() => setLoading(false));
   }, []);
 
+  // Short polling for live updates (15s interval)
+  useEffect(() => {
+    if (!user) return;
+    let active = true;
+
+    const tick = async () => {
+      try {
+        const data = await api.poll();
+        if (!active) return;
+        if (lastFpRef.current !== null && data.fingerprint !== lastFpRef.current) {
+          setRefreshTick((t) => t + 1);
+        }
+        lastFpRef.current = data.fingerprint;
+      } catch {
+        // ignore network errors during polling
+      }
+    };
+
+    tick(); // seed initial fingerprint immediately
+    const id = setInterval(tick, POLL_INTERVAL);
+    return () => { active = false; clearInterval(id); };
+  }, [user]);
+
   const handleLogin = (userData) => {
     setUser(userData);
+    lastFpRef.current = null;
     setView("dashboard");
   };
 
   const handleLogout = async () => {
     await api.logout().catch(() => {});
     setUser(null);
+    lastFpRef.current = null;
   };
 
   const handleEditExpense = (expense) => {
     setEditExpense(expense);
     setView("add");
+  };
+
+  const handleExpenseSaved = () => {
+    setEditExpense(null);
+    setView("dashboard");
+    showToast(editExpense ? "Expense updated" : "Expense added");
+    setRefreshTick((t) => t + 1);
   };
 
   if (loading) return <div className="loading">Loading...</div>;
@@ -67,7 +103,10 @@ export default function App() {
             </h1>
             <div className="header-actions">
               {view !== "add" && (
-                <button className="header-btn" onClick={() => { setEditExpense(null); setView("add"); }}>
+                <button
+                  className="header-btn"
+                  onClick={() => { setEditExpense(null); setView("add"); }}
+                >
                   + Add
                 </button>
               )}
@@ -76,12 +115,12 @@ export default function App() {
 
           <div className="app-content">
             {view === "dashboard" && (
-              <Dashboard onEdit={handleEditExpense} />
+              <Dashboard onEdit={handleEditExpense} refreshTick={refreshTick} />
             )}
             {view === "add" && (
               <AddExpense
                 expense={editExpense}
-                onSaved={() => { setEditExpense(null); setView("dashboard"); showToast(editExpense ? "Expense updated" : "Expense added"); }}
+                onSaved={handleExpenseSaved}
                 onCancel={() => { setEditExpense(null); setView("dashboard"); }}
               />
             )}
@@ -96,14 +135,17 @@ export default function App() {
           <nav className="app-nav">
             {[
               { key: "dashboard", icon: "🏠", label: "Home" },
-              { key: "add", icon: "➕", label: "Add" },
-              { key: "history", icon: "📋", label: "History" },
-              { key: "settings", icon: "⚙️", label: "Settings" },
+              { key: "add",       icon: "➕", label: "Add"  },
+              { key: "history",   icon: "📋", label: "History" },
+              { key: "settings",  icon: "⚙️", label: "Settings" },
             ].map((item) => (
               <button
                 key={item.key}
                 className={`nav-btn${view === item.key ? " active" : ""}`}
-                onClick={() => { if (item.key === "add") setEditExpense(null); setView(item.key); }}
+                onClick={() => {
+                  if (item.key === "add") setEditExpense(null);
+                  setView(item.key);
+                }}
               >
                 <span className="nav-icon">{item.icon}</span>
                 {item.label}

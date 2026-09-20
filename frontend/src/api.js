@@ -34,4 +34,13 @@ export const api = {
   createExpense: (payload) => request("/expenses", { method: "POST", body: payload }),
   updateExpense: (id, payload) => request(`/expenses/${id}`, { method: "PUT", body: payload }),
   deleteExpense: (id) => request(`/expenses/${id}`, { method: "DELETE" }),
+
+  getBudget: () => request("/budget"),
+  updateBudget: (weekly_budget) => request("/budget", { method: "PUT", body: { weekly_budget: String(weekly_budget) } }),
+  budgetHistory: () => request("/budget/history"),
+
+  calendarMonth: (year, month) =>
+    request(`/calendar/${year}/${String(month).padStart(2, "0")}`),
+
+  poll: () => request("/poll"),
 };

@@ -33,6 +33,25 @@ def init_db():
 
         CREATE INDEX IF NOT EXISTS idx_exp_user_dt
             ON expenses(user_id, expense_datetime);
+
+        CREATE TABLE IF NOT EXISTS settings (
+            user_id INTEGER NOT NULL,
+            key     TEXT    NOT NULL,
+            value   TEXT    NOT NULL,
+            PRIMARY KEY (user_id, key),
+            FOREIGN KEY (user_id) REFERENCES users(id)
+        );
+
+        CREATE TABLE IF NOT EXISTS weekly_periods (
+            id           INTEGER PRIMARY KEY AUTOINCREMENT,
+            user_id      INTEGER NOT NULL,
+            week_start   TEXT    NOT NULL,
+            week_end     TEXT    NOT NULL,
+            budget_paise INTEGER NOT NULL,
+            spent_paise  INTEGER NOT NULL,
+            created_at   TEXT    NOT NULL DEFAULT (datetime('now')),
+            FOREIGN KEY (user_id) REFERENCES users(id)
+        );
     """)
     db.commit()
 

@@ -141,5 +141,173 @@ body {
 .mb-20 { margin-bottom: 20px; }
 .text-center { text-align: center; }
 .text-muted { color: var(--gray-400); font-size: 13px; }
+.text-red { color: var(--red) !important; }
 .loading { text-align: center; color: var(--gray-400); padding: 30px; }
 .divider { height: 1px; background: var(--gray-100); margin: 16px 0; }
+
+/* ── Weekly Budget Card ── */
+:root {
+  --amber: #d97706;
+  --amber-light: #fffbeb;
+  --amber-dark: #b45309;
+  --orange: #ea580c;
+  --orange-light: #fff7ed;
+}
+
+.budget-card {
+  border-radius: var(--radius);
+  padding: 16px;
+  margin-bottom: 16px;
+  border: 1.5px solid var(--gray-200);
+  background: #fff;
+  box-shadow: var(--shadow);
+}
+.budget-card.budget-normal  { border-color: var(--green);  background: var(--green-light); }
+.budget-card.budget-warning { border-color: var(--amber);  background: var(--amber-light); }
+.budget-card.budget-high    { border-color: var(--orange); background: var(--orange-light); }
+.budget-card.budget-exceeded { border-color: var(--red);   background: var(--red-light); }
+
+.budget-card-top { display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px; }
+.budget-card-title { font-size: 12px; font-weight: 700; text-transform: uppercase; letter-spacing: .5px; color: var(--gray-600); }
+
+.budget-badge { font-size: 11px; font-weight: 700; padding: 2px 9px; border-radius: 20px; }
+.budget-badge.budget-normal  { background: var(--green);  color: #fff; }
+.budget-badge.budget-warning { background: var(--amber);  color: #fff; }
+.budget-badge.budget-high    { background: var(--orange); color: #fff; }
+.budget-badge.budget-exceeded { background: var(--red);  color: #fff; }
+
+.budget-amounts { display: flex; align-items: center; gap: 8px; margin-bottom: 12px; }
+.budget-amount-block { min-width: 0; }
+.budget-amount-label { font-size: 11px; color: var(--gray-400); font-weight: 600; text-transform: uppercase; }
+.budget-amount-value { font-size: 20px; font-weight: 800; color: var(--gray-800); font-variant-numeric: tabular-nums; }
+.budget-of { font-size: 13px; color: var(--gray-400); white-space: nowrap; }
+
+.budget-progress-wrap { margin-top: 4px; }
+.budget-progress-track { height: 8px; background: var(--gray-200); border-radius: 99px; overflow: hidden; }
+.budget-progress-fill { height: 100%; border-radius: 99px; transition: width 0.4s ease; }
+.budget-progress-fill.budget-normal  { background: var(--green); }
+.budget-progress-fill.budget-warning { background: var(--amber); }
+.budget-progress-fill.budget-high    { background: var(--orange); }
+.budget-progress-fill.budget-exceeded { background: var(--red); }
+.budget-progress-meta { display: flex; justify-content: space-between; margin-top: 5px; font-size: 11px; color: var(--gray-400); font-weight: 600; }
+
+/* ── Calendar ── */
+.calendar-wrap {
+  background: #fff;
+  border-radius: var(--radius);
+  border: 1px solid var(--gray-200);
+  box-shadow: var(--shadow);
+  margin-bottom: 16px;
+  overflow: hidden;
+}
+
+.cal-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 12px 16px;
+  background: var(--blue);
+  color: #fff;
+}
+.cal-month-title { font-size: 15px; font-weight: 700; }
+.cal-nav-btn {
+  background: rgba(255,255,255,.2);
+  border: none;
+  color: #fff;
+  font-size: 20px;
+  width: 32px;
+  height: 32px;
+  border-radius: 8px;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: background 0.15s;
+  line-height: 1;
+}
+.cal-nav-btn:hover:not(:disabled) { background: rgba(255,255,255,.35); }
+.cal-nav-btn:disabled { opacity: 0.35; cursor: default; }
+
+.cal-grid {
+  display: grid;
+  grid-template-columns: repeat(7, 1fr);
+  gap: 0;
+}
+.cal-day-name {
+  text-align: center;
+  padding: 8px 2px 6px;
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--gray-400);
+  text-transform: uppercase;
+  border-bottom: 1px solid var(--gray-100);
+}
+
+.cal-cell {
+  min-height: 56px;
+  padding: 5px 4px 4px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  border-right: 1px solid var(--gray-100);
+  border-bottom: 1px solid var(--gray-100);
+  cursor: pointer;
+  transition: background 0.1s;
+  position: relative;
+}
+.cal-cell:nth-child(7n) { border-right: none; }
+.cal-cell-empty { background: var(--gray-50); cursor: default; }
+.cal-cell:not(.cal-cell-empty):not(.cal-future):hover { background: var(--blue-light); }
+
+.cal-day-num {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--gray-600);
+  line-height: 1;
+  margin-bottom: 2px;
+}
+.cal-amount {
+  font-size: 9px;
+  font-weight: 700;
+  color: var(--green);
+  text-align: center;
+  line-height: 1.2;
+  word-break: break-all;
+}
+
+.cal-cell.cal-has-data .cal-day-num { color: var(--gray-800); }
+.cal-cell.cal-has-data::after {
+  content: '';
+  width: 4px; height: 4px;
+  background: var(--green);
+  border-radius: 50%;
+  position: absolute;
+  bottom: 4px;
+  left: 50%;
+  transform: translateX(-50%);
+}
+
+.cal-cell.cal-today { background: var(--blue-light); }
+.cal-cell.cal-today .cal-day-num { color: var(--blue); font-weight: 800; }
+
+.cal-cell.cal-selected { background: var(--blue) !important; }
+.cal-cell.cal-selected .cal-day-num { color: #fff !important; }
+.cal-cell.cal-selected .cal-amount { color: rgba(255,255,255,.85); }
+.cal-cell.cal-selected::after { background: rgba(255,255,255,.6); }
+
+.cal-cell.cal-future { opacity: 0.35; cursor: default; }
+
+/* ── Day Detail ── */
+.day-detail { margin-top: 4px; }
+.day-detail-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 10px;
+}
+.day-detail-title { font-size: 16px; font-weight: 700; color: var(--gray-800); }
+.day-detail-total { font-size: 17px; font-weight: 800; color: var(--blue); font-variant-numeric: tabular-nums; }
+.day-empty { color: var(--gray-400); font-size: 14px; text-align: center; padding: 20px 0; }
+
+/* ── Budget warning overlay ── */
+.warn-icon { font-size: 36px; text-align: center; margin-bottom: 8px; }

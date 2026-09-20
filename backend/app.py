@@ -69,6 +69,25 @@ def init_db():
 
         CREATE INDEX IF NOT EXISTS idx_exp_user_dt
             ON expenses(user_id, expense_datetime);
+
+        CREATE TABLE IF NOT EXISTS settings (
+            user_id INTEGER NOT NULL,
+            key     TEXT    NOT NULL,
+            value   TEXT    NOT NULL,
+            PRIMARY KEY (user_id, key),
+            FOREIGN KEY (user_id) REFERENCES users(id)
+        );
+
+        CREATE TABLE IF NOT EXISTS weekly_periods (
+            id           INTEGER PRIMARY KEY AUTOINCREMENT,
+            user_id      INTEGER NOT NULL,
+            week_start   TEXT    NOT NULL,
+            week_end     TEXT    NOT NULL,
+            budget_paise INTEGER NOT NULL,
+            spent_paise  INTEGER NOT NULL,
+            created_at   TEXT    NOT NULL DEFAULT (datetime('now')),
+            FOREIGN KEY (user_id) REFERENCES users(id)
+        );
     """)
     db.commit()
     db.close()
@@ -161,6 +180,107 @@ def expense_row_to_dict(row) -> dict:
         "expense_datetime": row["expense_datetime"],
         "created_at": row["created_at"],
         "updated_at": row["updated_at"],
+    }
+
+
+# ── Settings / Budget helpers ─────────────────────────────────────────────────
+
+def get_setting(db, user_id: int, key: str, default: Optional[str] = None) -> Optional[str]:
+    row = db.execute(
+        "SELECT value FROM settings WHERE user_id=? AND key=?", (user_id, key)
+    ).fetchone()
+    return row["value"] if row else default
+
+
+def set_setting(db, user_id: int, key: str, value: str) -> None:
+    db.execute(
+        "INSERT OR REPLACE INTO settings (user_id, key, value) VALUES (?,?,?)",
+        (user_id, key, str(value)),
+    )
+
+
+def maybe_rollover_week(db, user_id: int) -> None:
+    """Archive any expired weekly periods and advance week_start to current week."""
+    now_pkt = datetime.now(PKT)
+    today = now_pkt.date()
+
+    budget_paise = int(get_setting(db, user_id, "weekly_budget_paise", "0"))
+    week_start_str = get_setting(db, user_id, "week_start_date", None)
+
+    if not week_start_str:
+        set_setting(db, user_id, "week_start_date", today.strftime("%Y-%m-%d"))
+        db.commit()
+        return
+
+    from datetime import date as date_type
+    week_start = datetime.strptime(week_start_str, "%Y-%m-%d").date()
+
+    changed = False
+    while (week_start + timedelta(days=7)) <= today:
+        week_end = week_start + timedelta(days=6)
+
+        existing = db.execute(
+            "SELECT id FROM weekly_periods WHERE user_id=? AND week_start=?",
+            (user_id, week_start.strftime("%Y-%m-%d")),
+        ).fetchone()
+
+        if not existing:
+            spent = db.execute(
+                """SELECT COALESCE(SUM(amount_paise),0) AS total FROM expenses
+                   WHERE user_id=? AND expense_datetime>=? AND expense_datetime<=?""",
+                (user_id, f"{week_start}T00:00:00", f"{week_end}T23:59:59"),
+            ).fetchone()["total"]
+            db.execute(
+                """INSERT INTO weekly_periods
+                   (user_id, week_start, week_end, budget_paise, spent_paise)
+                   VALUES (?,?,?,?,?)""",
+                (user_id, week_start.strftime("%Y-%m-%d"),
+                 week_end.strftime("%Y-%m-%d"), budget_paise, spent),
+            )
+
+        week_start = week_start + timedelta(days=7)
+        changed = True
+
+    if changed:
+        set_setting(db, user_id, "week_start_date", week_start.strftime("%Y-%m-%d"))
+        db.commit()
+
+
+def get_week_status(db, user_id: int) -> dict:
+    maybe_rollover_week(db, user_id)
+
+    now_pkt = datetime.now(PKT)
+    today = now_pkt.date()
+
+    budget_paise = int(get_setting(db, user_id, "weekly_budget_paise", "0"))
+    week_start_str = get_setting(db, user_id, "week_start_date", today.strftime("%Y-%m-%d"))
+    week_start = datetime.strptime(week_start_str, "%Y-%m-%d").date()
+    week_end = week_start + timedelta(days=6)
+
+    days_elapsed = (today - week_start).days
+    days_remaining = max(0, 6 - days_elapsed)
+
+    spent_paise = db.execute(
+        """SELECT COALESCE(SUM(amount_paise),0) AS total FROM expenses
+           WHERE user_id=? AND expense_datetime>=? AND expense_datetime<=?""",
+        (user_id, f"{week_start}T00:00:00", f"{week_end}T23:59:59"),
+    ).fetchone()["total"]
+
+    remaining_paise = max(0, budget_paise - spent_paise)
+    pct = round(spent_paise / budget_paise * 100, 1) if budget_paise > 0 else 0.0
+
+    return {
+        "budget_paise": budget_paise,
+        "budget_pkr": paise_to_pkr(budget_paise),
+        "spent_paise": spent_paise,
+        "spent_pkr": paise_to_pkr(spent_paise),
+        "remaining_paise": remaining_paise,
+        "remaining_pkr": paise_to_pkr(remaining_paise),
+        "percent_used": pct,
+        "days_remaining": days_remaining,
+        "week_start": week_start.strftime("%Y-%m-%d"),
+        "week_end": week_end.strftime("%Y-%m-%d"),
+        "budget_configured": budget_paise > 0,
     }
 
 
@@ -416,6 +536,103 @@ def get_categories():
     used = [r["category"] for r in rows]
     all_cats = list(dict.fromkeys(used + [c for c in defaults if c not in used]))
     return jsonify(all_cats)
+
+
+# ── Budget routes ─────────────────────────────────────────────────────────────
+
+@app.get("/api/budget")
+@require_auth
+def get_budget():
+    db = get_db()
+    return jsonify(get_week_status(db, g.user_id))
+
+
+@app.put("/api/budget")
+@require_auth
+def update_budget():
+    data = request.get_json(silent=True) or {}
+    raw = str(data.get("weekly_budget", "0"))
+    try:
+        if float(raw) == 0:
+            paise = 0
+        else:
+            paise = pkr_to_paise(raw)
+    except ValueError:
+        return jsonify({"error": "Invalid budget amount"}), 400
+
+    db = get_db()
+    set_setting(db, g.user_id, "weekly_budget_paise", paise)
+    if not get_setting(db, g.user_id, "week_start_date"):
+        today = datetime.now(PKT).strftime("%Y-%m-%d")
+        set_setting(db, g.user_id, "week_start_date", today)
+    db.commit()
+    return jsonify(get_week_status(db, g.user_id))
+
+
+@app.get("/api/budget/history")
+@require_auth
+def budget_history():
+    db = get_db()
+    rows = db.execute(
+        """SELECT * FROM weekly_periods WHERE user_id=?
+           ORDER BY week_start DESC LIMIT 12""",
+        (g.user_id,),
+    ).fetchall()
+    return jsonify([
+        {
+            "week_start": r["week_start"],
+            "week_end": r["week_end"],
+            "budget_pkr": paise_to_pkr(r["budget_paise"]),
+            "spent_pkr": paise_to_pkr(r["spent_paise"]),
+            "percent_used": (
+                round(r["spent_paise"] / r["budget_paise"] * 100, 1)
+                if r["budget_paise"] > 0 else 0.0
+            ),
+        }
+        for r in rows
+    ])
+
+
+@app.get("/api/calendar/<int:year>/<int:month>")
+@require_auth
+def calendar_month(year, month):
+    if not (1 <= month <= 12) or not (2000 <= year <= 2100):
+        return jsonify({"error": "Invalid date"}), 400
+    db = get_db()
+    prefix = f"{year:04d}-{month:02d}"
+    rows = db.execute(
+        """SELECT substr(expense_datetime,1,10) AS day,
+                  COALESCE(SUM(amount_paise),0) AS total_paise,
+                  COUNT(*) AS cnt
+           FROM expenses
+           WHERE user_id=? AND expense_datetime LIKE ?
+           GROUP BY day ORDER BY day""",
+        (g.user_id, f"{prefix}%"),
+    ).fetchall()
+    return jsonify([
+        {
+            "date": r["day"],
+            "total_paise": r["total_paise"],
+            "total_pkr": paise_to_pkr(r["total_paise"]),
+            "count": r["cnt"],
+        }
+        for r in rows
+    ])
+
+
+@app.get("/api/poll")
+@require_auth
+def poll():
+    db = get_db()
+    row = db.execute(
+        """SELECT COALESCE(MAX(updated_at),'') AS u,
+                  COALESCE(MAX(created_at),'') AS c,
+                  COUNT(*) AS n
+           FROM expenses WHERE user_id=?""",
+        (g.user_id,),
+    ).fetchone()
+    fingerprint = f"{row['n']}:{max(row['u'], row['c'])}"
+    return jsonify({"fingerprint": fingerprint})
 
 
 # ── Health check ──────────────────────────────────────────────────────────────

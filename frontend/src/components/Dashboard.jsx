@@ -1,78 +1,101 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useCallback } from "react";
 import { api } from "../api.js";
+import WeeklyBudget from "./WeeklyBudget.jsx";
+import CalendarView from "./CalendarView.jsx";
 import ExpenseItem from "./ExpenseItem.jsx";
 
-export default function Dashboard({ onEdit }) {
-  const [data, setData] = useState(null);
-  const [loading, setLoading] = useState(true);
+function getPKTToday() {
+  const pkt = new Date(Date.now() + 5 * 60 * 60 * 1000);
+  const y = pkt.getUTCFullYear();
+  const m = String(pkt.getUTCMonth() + 1).padStart(2, "0");
+  const d = String(pkt.getUTCDate()).padStart(2, "0");
+  return `${y}-${m}-${d}`;
+}
 
-  const load = () => {
-    setLoading(true);
-    api.dashboard()
-      .then(setData)
+const MONTHS = [
+  "January","February","March","April","May","June",
+  "July","August","September","October","November","December",
+];
+
+function dayLabel(dateStr) {
+  if (!dateStr) return "";
+  const [y, m, d] = dateStr.split("-").map(Number);
+  const today = getPKTToday();
+  const pkt = new Date(Date.now() + 5 * 60 * 60 * 1000 - 86400000);
+  const yest = `${pkt.getUTCFullYear()}-${String(pkt.getUTCMonth()+1).padStart(2,"0")}-${String(pkt.getUTCDate()).padStart(2,"0")}`;
+  if (dateStr === today) return "Today";
+  if (dateStr === yest) return "Yesterday";
+  return `${d} ${MONTHS[m - 1]} ${y}`;
+}
+
+export default function Dashboard({ onEdit, refreshTick }) {
+  const today = getPKTToday();
+  const [selectedDate, setSelectedDate] = useState(today);
+  const [dayExpenses, setDayExpenses] = useState([]);
+  const [dayLoading, setDayLoading] = useState(false);
+  const [dayTotal, setDayTotal] = useState(0);
+
+  const loadDay = useCallback((date) => {
+    setDayLoading(true);
+    api.listExpenses({ from: date, to: date, limit: 200 })
+      .then((data) => {
+        setDayExpenses(data);
+        setDayTotal(data.reduce((s, e) => s + parseFloat(e.amount_pkr), 0));
+      })
       .catch(console.error)
-      .finally(() => setLoading(false));
+      .finally(() => setDayLoading(false));
+  }, []);
+
+  useEffect(() => { loadDay(today); }, []);
+
+  useEffect(() => {
+    if (refreshTick > 0) loadDay(selectedDate);
+  }, [refreshTick]);
+
+  const handleDaySelect = (date) => {
+    setSelectedDate(date);
+    loadDay(date);
   };
 
-  useEffect(() => { load(); }, []);
-
-  if (loading) return <div className="loading">Loading…</div>;
-  if (!data) return <div className="empty-state"><p>Could not load dashboard.</p></div>;
-
-  const fmt = (pkr) => {
-    const n = parseFloat(pkr);
-    return n.toLocaleString("en-PK", { maximumFractionDigits: 0 });
-  };
+  const fmt = (n) => n.toLocaleString("en-PK", { maximumFractionDigits: 0 });
 
   return (
     <div>
-      <div className="stats-grid">
-        <div className="stat-card">
-          <div className="stat-label">Today</div>
-          <div className="stat-value today">
-            <span className="pkr-prefix">₨</span>{fmt(data.today_total_pkr)}
-          </div>
+      <WeeklyBudget refreshTick={refreshTick} />
+
+      <CalendarView
+        onDaySelect={handleDaySelect}
+        selectedDate={selectedDate}
+        refreshTick={refreshTick}
+      />
+
+      <div className="day-detail">
+        <div className="day-detail-header">
+          <span className="day-detail-title">{dayLabel(selectedDate)}</span>
+          {dayExpenses.length > 0 && (
+            <span className="day-detail-total">₨{fmt(dayTotal)}</span>
+          )}
         </div>
-        <div className="stat-card">
-          <div className="stat-label">This Month</div>
-          <div className="stat-value month">
-            <span className="pkr-prefix">₨</span>{fmt(data.month_total_pkr)}
+
+        {dayLoading ? (
+          <div className="loading">Loading…</div>
+        ) : dayExpenses.length === 0 ? (
+          <div className="day-empty">No expenses on this day</div>
+        ) : (
+          <div className="card">
+            <div className="card-body">
+              {dayExpenses.map((exp) => (
+                <ExpenseItem
+                  key={exp.id}
+                  expense={exp}
+                  onEdit={onEdit}
+                  onDeleted={() => loadDay(selectedDate)}
+                />
+              ))}
+            </div>
           </div>
-        </div>
+        )}
       </div>
-
-      {data.category_totals.length > 0 && (
-        <div className="card mb-20">
-          <div className="card-body">
-            <div className="section-title">This Month by Category</div>
-            {data.category_totals.map((cat) => (
-              <div key={cat.category} className="cat-item">
-                <div>
-                  <div className="cat-name">{cat.category}</div>
-                  <div className="cat-count">{cat.count} expense{cat.count !== 1 ? "s" : ""}</div>
-                </div>
-                <div className="cat-amount">₨{fmt(cat.total_pkr)}</div>
-              </div>
-            ))}
-          </div>
-        </div>
-      )}
-
-      <div className="section-title">Recent Expenses</div>
-      {data.recent_expenses.length === 0 ? (
-        <div className="empty-state">
-          <div className="empty-icon">📭</div>
-          <p>No expenses yet. Tap + Add to record your first one.</p>
-        </div>
-      ) : (
-        <div className="card">
-          <div className="card-body">
-            {data.recent_expenses.map((exp) => (
-              <ExpenseItem key={exp.id} expense={exp} onEdit={onEdit} onDeleted={load} />
-            ))}
-          </div>
-        </div>
-      )}
     </div>
   );
 }
