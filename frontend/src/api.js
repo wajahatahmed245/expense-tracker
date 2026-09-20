@@ -1,11 +1,13 @@
 const BASE = "/api";
 
 async function request(path, options = {}) {
+  const { body, headers: extraHeaders, ...restOptions } = options;
   const res = await fetch(`${BASE}${path}`, {
     credentials: "include",
-    headers: { "Content-Type": "application/json", ...(options.headers || {}) },
-    ...options,
-    body: options.body ? JSON.stringify(options.body) : undefined,
+    cache: "no-store",
+    headers: { "Content-Type": "application/json", ...(extraHeaders || {}) },
+    ...restOptions,
+    body: body ? JSON.stringify(body) : undefined,
   });
 
   if (res.status === 204) return null;

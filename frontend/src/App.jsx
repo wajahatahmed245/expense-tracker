@@ -17,7 +17,7 @@ function Toast({ message }) {
   return <div className="toast">{message}</div>;
 }
 
-const POLL_INTERVAL = 15000; // 15 seconds
+const POLL_INTERVAL = 5000; // 5 seconds
 
 export default function App() {
   const [user, setUser]         = useState(null);

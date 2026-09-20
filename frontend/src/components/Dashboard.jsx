@@ -46,16 +46,11 @@ export default function Dashboard({ onEdit, refreshTick }) {
       .finally(() => setDayLoading(false));
   }, []);
 
-  useEffect(() => { loadDay(today); }, []);
-
   useEffect(() => {
-    if (refreshTick > 0) loadDay(selectedDate);
-  }, [refreshTick]);
+    loadDay(selectedDate);
+  }, [selectedDate, refreshTick, loadDay]);
 
-  const handleDaySelect = (date) => {
-    setSelectedDate(date);
-    loadDay(date);
-  };
+  const handleDaySelect = (date) => setSelectedDate(date);
 
   const fmt = (n) => n.toLocaleString("en-PK", { maximumFractionDigits: 0 });
 

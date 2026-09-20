@@ -15,17 +15,14 @@ function fmt(pkr) {
 export default function WeeklyBudget({ refreshTick, onBudgetLoaded }) {
   const [budget, setBudget] = useState(null);
 
-  const load = () => {
+  useEffect(() => {
     api.getBudget()
       .then((b) => {
         setBudget(b);
         if (onBudgetLoaded) onBudgetLoaded(b);
       })
       .catch(console.error);
-  };
-
-  useEffect(() => { load(); }, []);
-  useEffect(() => { if (refreshTick > 0) load(); }, [refreshTick]);
+  }, [refreshTick]);
 
   if (!budget || !budget.budget_configured) return null;
 

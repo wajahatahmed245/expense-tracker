@@ -40,7 +40,7 @@ export default function CalendarView({ onDaySelect, selectedDate, refreshTick })
   const [calData, setCalData] = useState({});
   const [loading, setLoading] = useState(true);
 
-  const load = () => {
+  useEffect(() => {
     setLoading(true);
     api.calendarMonth(year, month)
       .then((days) => {
@@ -50,10 +50,7 @@ export default function CalendarView({ onDaySelect, selectedDate, refreshTick })
       })
       .catch(console.error)
       .finally(() => setLoading(false));
-  };
-
-  useEffect(() => { load(); }, [year, month]);
-  useEffect(() => { if (refreshTick > 0) load(); }, [refreshTick]);
+  }, [year, month, refreshTick]);
 
   const canGoNext = !(year === today.year && month === today.month);
 
