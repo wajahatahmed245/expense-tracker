@@ -212,7 +212,6 @@ def maybe_rollover_week(db, user_id: int) -> None:
         db.commit()
         return
 
-    from datetime import date as date_type
     week_start = datetime.strptime(week_start_str, "%Y-%m-%d").date()
 
     changed = False
@@ -258,7 +257,7 @@ def get_week_status(db, user_id: int) -> dict:
     week_end = week_start + timedelta(days=6)
 
     days_elapsed = (today - week_start).days
-    days_remaining = max(0, 6 - days_elapsed)
+    days_remaining = max(0, 7 - days_elapsed)
 
     spent_paise = db.execute(
         """SELECT COALESCE(SUM(amount_paise),0) AS total FROM expenses
@@ -277,7 +276,9 @@ def get_week_status(db, user_id: int) -> dict:
         "remaining_paise": remaining_paise,
         "remaining_pkr": paise_to_pkr(remaining_paise),
         "percent_used": pct,
+        "days_elapsed": days_elapsed,
         "days_remaining": days_remaining,
+        "is_exceeded": budget_paise > 0 and spent_paise > budget_paise,
         "week_start": week_start.strftime("%Y-%m-%d"),
         "week_end": week_end.strftime("%Y-%m-%d"),
         "budget_configured": budget_paise > 0,
@@ -560,9 +561,18 @@ def update_budget():
     except ValueError:
         return jsonify({"error": "Invalid budget amount"}), 400
 
+    week_start_date = (data.get("week_start_date") or "").strip()
+    if week_start_date:
+        try:
+            datetime.strptime(week_start_date, "%Y-%m-%d")
+        except ValueError:
+            return jsonify({"error": "Invalid week_start_date, use YYYY-MM-DD"}), 400
+
     db = get_db()
     set_setting(db, g.user_id, "weekly_budget_paise", paise)
-    if not get_setting(db, g.user_id, "week_start_date"):
+    if week_start_date:
+        set_setting(db, g.user_id, "week_start_date", week_start_date)
+    elif not get_setting(db, g.user_id, "week_start_date"):
         today = datetime.now(PKT).strftime("%Y-%m-%d")
         set_setting(db, g.user_id, "week_start_date", today)
     db.commit()

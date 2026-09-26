@@ -189,6 +189,57 @@ def delete_expense(expense_id: int) -> str:
     return f"Expense #{expense_id} deleted."
 
 
+@mcp.tool()
+def get_weekly_budget() -> str:
+    """
+    Get the current weekly budget status: budget amount, amount spent, remaining,
+    days elapsed, days remaining, and whether the budget has been exceeded.
+    """
+    with _client() as c:
+        r = c.get("/budget")
+        r.raise_for_status()
+        b = r.json()
+
+    if not b["budget_configured"]:
+        return "No weekly budget configured. Use set_weekly_budget to set one."
+
+    exceeded = " — BUDGET EXCEEDED" if b.get("is_exceeded") else ""
+    lines = [
+        f"Weekly Budget: Rs{float(b['budget_pkr']):,.0f}",
+        f"Spent: Rs{float(b['spent_pkr']):,.0f} ({b['percent_used']}%){exceeded}",
+        f"Remaining: Rs{float(b['remaining_pkr']):,.0f}",
+        f"Period: {b['week_start']} to {b['week_end']}",
+        f"Day {b['days_elapsed'] + 1} of 7 — {b['days_remaining']} day{'s' if b['days_remaining'] != 1 else ''} left",
+    ]
+    return "\n".join(lines)
+
+
+@mcp.tool()
+def set_weekly_budget(weekly_budget_pkr: float, week_start_date: str = "") -> str:
+    """
+    Set or update the weekly budget.
+    weekly_budget_pkr: budget in PKR (e.g. 5000.0). Pass 0 to disable the budget.
+    week_start_date: optional YYYY-MM-DD to reset the week's start date (defaults to today if not set).
+    """
+    payload: dict = {"weekly_budget": str(round(weekly_budget_pkr, 2))}
+    if week_start_date:
+        payload["week_start_date"] = week_start_date
+
+    with _client() as c:
+        r = c.put("/budget", json=payload)
+        r.raise_for_status()
+        b = r.json()
+
+    if weekly_budget_pkr == 0:
+        return "Weekly budget disabled."
+
+    return (
+        f"Weekly budget set to Rs{float(b['budget_pkr']):,.0f}. "
+        f"Period: {b['week_start']} to {b['week_end']} "
+        f"({b['days_remaining']} day{'s' if b['days_remaining'] != 1 else ''} remaining)."
+    )
+
+
 if __name__ == "__main__":
     import uvicorn
     port = int(os.environ.get("PORT", 8002))

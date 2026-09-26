@@ -343,3 +343,136 @@ class TestMoney:
         })
         assert r.status_code == 201
         assert r.get_json()["amount_paise"] == 9999900
+
+
+# ── Weekly Budget Boundaries ──────────────────────────────────────────────────
+
+class TestWeeklyBudgetBoundaries:
+    def _set_week_start(self, days_ago: int) -> str:
+        """Bypass the API and set week_start_date directly in the DB."""
+        import datetime
+        import sqlite3 as sq
+        date = (datetime.date.today() - datetime.timedelta(days=days_ago)).strftime("%Y-%m-%d")
+        conn = sq.connect(flask_app.DATABASE)
+        conn.row_factory = sq.Row
+        uid = conn.execute("SELECT id FROM users LIMIT 1").fetchone()["id"]
+        conn.execute(
+            "INSERT OR REPLACE INTO settings (user_id, key, value) VALUES (?, 'week_start_date', ?)",
+            (uid, date),
+        )
+        conn.commit()
+        conn.close()
+        return date
+
+    def test_days_remaining_first_day(self, client):
+        """On the first day of the week, 7 days should remain (including today)."""
+        login(client)
+        client.put("/api/budget", json={"weekly_budget": "10000"})
+        r = client.get("/api/budget")
+        data = r.get_json()
+        assert data["days_remaining"] == 7
+        assert data["days_elapsed"] == 0
+
+    def test_days_remaining_midweek(self, client):
+        """3 days in: 4 days should remain."""
+        login(client)
+        client.put("/api/budget", json={"weekly_budget": "10000"})
+        self._set_week_start(3)
+        r = client.get("/api/budget")
+        data = r.get_json()
+        assert data["days_elapsed"] == 3
+        assert data["days_remaining"] == 4
+
+    def test_days_remaining_last_day(self, client):
+        """On the last day of the 7-day period (day 6), 1 day should remain."""
+        login(client)
+        client.put("/api/budget", json={"weekly_budget": "10000"})
+        self._set_week_start(6)
+        r = client.get("/api/budget")
+        data = r.get_json()
+        assert data["days_elapsed"] == 6
+        assert data["days_remaining"] == 1
+
+    def test_days_elapsed_in_response(self, client):
+        """days_elapsed must be present and correct in every budget response."""
+        login(client)
+        client.put("/api/budget", json={"weekly_budget": "5000"})
+        r = client.get("/api/budget")
+        data = r.get_json()
+        assert "days_elapsed" in data
+        assert isinstance(data["days_elapsed"], int)
+
+    def test_budget_not_exceeded(self, client):
+        import datetime
+        login(client)
+        today = datetime.date.today().strftime("%Y-%m-%d")
+        client.put("/api/budget", json={"weekly_budget": "5000"})
+        client.post("/api/expenses", json={
+            "amount": "1000", "spent_on": "Lunch",
+            "expense_datetime": f"{today}T12:00:00",
+        })
+        data = client.get("/api/budget").get_json()
+        assert data["is_exceeded"] is False
+
+    def test_budget_exceeded_flag(self, client):
+        """is_exceeded=True when spending surpasses the weekly budget."""
+        import datetime
+        login(client)
+        today = datetime.date.today().strftime("%Y-%m-%d")
+        client.put("/api/budget", json={"weekly_budget": "100"})
+        client.post("/api/expenses", json={
+            "amount": "500", "spent_on": "Overspend",
+            "expense_datetime": f"{today}T10:00:00",
+        })
+        data = client.get("/api/budget").get_json()
+        assert data["is_exceeded"] is True
+        assert data["remaining_paise"] == 0  # clamped to 0
+
+    def test_rollover_archives_previous_week(self, client):
+        """When today >= week_start+7, the old week is archived and a new one starts."""
+        import datetime
+        login(client)
+        client.put("/api/budget", json={"weekly_budget": "5000"})
+        old_start = self._set_week_start(7)
+
+        # Add an expense inside the old week
+        client.post("/api/expenses", json={
+            "amount": "1500", "spent_on": "Old expense",
+            "expense_datetime": f"{old_start}T10:00:00",
+        })
+
+        data = client.get("/api/budget").get_json()
+        assert data["week_start"] == datetime.date.today().strftime("%Y-%m-%d")
+        assert data["days_remaining"] == 7
+
+        hist = client.get("/api/budget/history").get_json()
+        assert any(p["week_start"] == old_start for p in hist)
+
+    def test_rollover_two_skipped_weeks(self, client):
+        """Two missed weeks both get archived in a single call."""
+        import datetime
+        login(client)
+        client.put("/api/budget", json={"weekly_budget": "5000"})
+        self._set_week_start(14)  # 2 full weeks ago
+
+        data = client.get("/api/budget").get_json()
+        assert data["week_start"] == datetime.date.today().strftime("%Y-%m-%d")
+
+        hist = client.get("/api/budget/history").get_json()
+        assert len(hist) >= 2
+
+    def test_set_week_start_date_via_api(self, client):
+        """PUT /api/budget should accept week_start_date to reset the period."""
+        import datetime
+        login(client)
+        today = datetime.date.today().strftime("%Y-%m-%d")
+        r = client.put("/api/budget", json={"weekly_budget": "5000", "week_start_date": today})
+        assert r.status_code == 200
+        data = r.get_json()
+        assert data["week_start"] == today
+        assert data["days_remaining"] == 7
+
+    def test_set_week_start_date_invalid(self, client):
+        login(client)
+        r = client.put("/api/budget", json={"weekly_budget": "5000", "week_start_date": "not-a-date"})
+        assert r.status_code == 400
